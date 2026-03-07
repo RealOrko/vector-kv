@@ -86,8 +86,9 @@ func doWithRetry(fn func() (*http.Response, error)) (*http.Response, error) {
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Retry %d/%d: %v\n", attempt, maxRetries, err)
 		} else {
-			fmt.Fprintf(os.Stderr, "Retry %d/%d: server error %d\n", attempt, maxRetries, resp.StatusCode)
+			body, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
+			fmt.Fprintf(os.Stderr, "Retry %d/%d: server error %d: %s\n", attempt, maxRetries, resp.StatusCode, strings.TrimSpace(string(body)))
 		}
 		time.Sleep(backoff)
 		backoff *= 2
@@ -378,7 +379,8 @@ func isBinary(data []byte) bool {
 }
 
 func chunkText(text string, size, overlap int) []string {
-	if len(text) <= size {
+	runes := []rune(text)
+	if len(runes) <= size {
 		return []string{text}
 	}
 	var chunks []string
@@ -386,13 +388,13 @@ func chunkText(text string, size, overlap int) []string {
 	if step < 1 {
 		step = 1
 	}
-	for i := 0; i < len(text); i += step {
+	for i := 0; i < len(runes); i += step {
 		end := i + size
-		if end > len(text) {
-			end = len(text)
+		if end > len(runes) {
+			end = len(runes)
 		}
-		chunks = append(chunks, text[i:end])
-		if end == len(text) {
+		chunks = append(chunks, string(runes[i:end]))
+		if end == len(runes) {
 			break
 		}
 	}
