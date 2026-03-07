@@ -1,0 +1,104 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "vector-kv.name" . }}-postgresql
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "vector-kv.labels" . | nindent 4 }}
+type: Opaque
+stringData:
+  POSTGRES_DB: {{ .Values.postgresql.database }}
+  POSTGRES_USER: {{ .Values.postgresql.username }}
+  POSTGRES_PASSWORD: {{ .Values.postgresql.password }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "vector-kv.name" . }}-initdb
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "vector-kv.labels" . | nindent 4 }}
+data:
+  init.sql: |
+    CREATE EXTENSION IF NOT EXISTS vector;
+    CREATE TABLE IF NOT EXISTS entries (
+        id BIGSERIAL PRIMARY KEY,
+        key TEXT NOT NULL,
+        content TEXT NOT NULL,
+        embedding vector(384) NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS entries_key_idx ON entries (key);
+    CREATE INDEX IF NOT EXISTS entries_embedding_idx ON entries USING hnsw (embedding vector_cosine_ops);
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "vector-kv.name" . }}-postgresql
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "vector-kv.labels" . | nindent 4 }}
+spec:
+  selector:
+    app.kubernetes.io/component: postgresql
+    {{- include "vector-kv.selectorLabels" . | nindent 4 }}
+  ports:
+    - port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "vector-kv.name" . }}-postgresql
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "vector-kv.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "vector-kv.name" . }}-postgresql
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: postgresql
+      {{- include "vector-kv.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: postgresql
+        {{- include "vector-kv.selectorLabels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: postgresql
+          image: {{ .Values.postgresql.image }}
+          ports:
+            - containerPort: 5432
+          env:
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          envFrom:
+            - secretRef:
+                name: {{ include "vector-kv.name" . }}-postgresql
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+            - name: initdb
+              mountPath: /docker-entrypoint-initdb.d
+          readinessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - {{ .Values.postgresql.username }}
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      volumes:
+        - name: initdb
+          configMap:
+            name: {{ include "vector-kv.name" . }}-initdb
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: {{ .Values.postgresql.storage.storageClass }}
+        resources:
+          requests:
+            storage: {{ .Values.postgresql.storage.size }}

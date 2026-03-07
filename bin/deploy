@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+NAMESPACE="vector-kv"
+RELEASE="vector-kv"
+CHART_DIR="$(cd "$(dirname "$0")/.." && pwd)/chart"
+
+echo "Updating helm dependencies..."
+helm dependency update "${CHART_DIR}"
+
+echo "Deploying ${RELEASE} to namespace ${NAMESPACE}..."
+helm upgrade --install "${RELEASE}" "${CHART_DIR}" \
+  --namespace "${NAMESPACE}" \
+  --create-namespace
+
+echo "Done."

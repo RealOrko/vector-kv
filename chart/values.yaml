@@ -1,0 +1,19 @@
+image:
+  repository: registry:5000/vector-kv
+  tag: latest
+  pullPolicy: Always
+
+replicas: 1
+
+service:
+  port: 8080
+  nodePort: 30080
+
+postgresql:
+  image: registry:5000/pgvector:pg16
+  database: vectorkv
+  username: vectorkv
+  password: vectorkv
+  storage:
+    size: 8Gi
+    storageClass: local-path

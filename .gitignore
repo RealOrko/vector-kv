@@ -1,0 +1,6 @@
+server
+*.exe
+chart/charts/
+chart/Chart.lock
+.claude/
+.mcp.json
