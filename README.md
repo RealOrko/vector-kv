@@ -78,6 +78,53 @@ curl http://<node-ip>:30080/keys
 curl -X DELETE http://<node-ip>:30080/my-key
 ```
 
+## 💻 CLI
+
+A command-line client for interacting with the vector-kv server.
+
+### Install
+
+```bash
+bin/install-cli
+```
+
+Builds and installs `vector-kv` to `~/.local/bin/`.
+
+### Setup
+
+```bash
+vector-kv config set-url http://<node-ip>:30080
+```
+
+### Commands
+
+```bash
+# List all keys
+vector-kv keys
+
+# Store a value
+vector-kv set my-key "Some text to store"
+
+# Semantic search (top 5 results)
+vector-kv get my-key -q "search terms" -k 5
+
+# Delete a key
+vector-kv delete my-key
+
+# Index a folder (with optional glob filter and dry-run)
+vector-kv index my-key ./docs --glob "*.md" --dry-run
+vector-kv index my-key ./docs --glob "*.md"
+
+# Configure chunking for indexing
+vector-kv config set-chunk-size 800
+vector-kv config set-chunk-overlap 200
+
+# Show current config
+vector-kv config show
+```
+
+All HTTP requests retry up to 3 times with exponential backoff on network errors and 5xx server responses.
+
 ## 🏗️ Architecture
 
 - 🖥️ **Go HTTP service** — handles API requests, runs embeddings in-process via ONNX Runtime, stores/queries vectors in PostgreSQL

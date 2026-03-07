@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+INSTALL_DIR="${HOME}/.local/bin"
+mkdir -p "${INSTALL_DIR}"
+
+echo "Building vector-kv CLI..."
+go build -o "${INSTALL_DIR}/vector-kv" ./cmd/cli
+
+echo "Installed to ${INSTALL_DIR}/vector-kv"
