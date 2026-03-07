@@ -58,6 +58,24 @@ func (s *Store) Query(ctx context.Context, key string, embedding []float32, limi
 	return results, rows.Err()
 }
 
+func (s *Store) Keys(ctx context.Context) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, "SELECT DISTINCT key FROM entries ORDER BY key")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var keys []string
+	for rows.Next() {
+		var k string
+		if err := rows.Scan(&k); err != nil {
+			return nil, err
+		}
+		keys = append(keys, k)
+	}
+	return keys, rows.Err()
+}
+
 func (s *Store) Delete(ctx context.Context, key string) error {
 	_, err := s.db.ExecContext(ctx, "DELETE FROM entries WHERE key = $1", key)
 	return err

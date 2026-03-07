@@ -33,6 +33,22 @@ func main() {
 	defer e.Close()
 
 	mux := http.NewServeMux()
+	mux.HandleFunc("/keys", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		keys, err := s.Keys(r.Context())
+		if err != nil {
+			http.Error(w, "keys failed: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if keys == nil {
+			keys = []string{}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(keys)
+	})
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		key := strings.TrimPrefix(r.URL.Path, "/")
 		if key == "" {
