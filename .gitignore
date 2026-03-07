@@ -1,4 +1,4 @@
-server
+/server
 *.exe
 chart/charts/
 chart/Chart.lock

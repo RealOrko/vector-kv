@@ -1,0 +1,124 @@
+package main
+
+import (
+	"encoding/json"
+	"io"
+	"log"
+	"net/http"
+	"os"
+	"strconv"
+	"strings"
+
+	"vector-kv/internal/embedding"
+	"vector-kv/internal/store"
+)
+
+func main() {
+	dbURL := getEnv("DATABASE_URL", "postgres://vectorkv:vectorkv@localhost:5432/vectorkv?sslmode=disable")
+	modelPath := getEnv("MODEL_PATH", "/model/model.onnx")
+	vocabPath := getEnv("VOCAB_PATH", "/model/vocab.txt")
+	ortLibPath := getEnv("ORT_LIB_PATH", "/usr/lib/libonnxruntime.so")
+	addr := getEnv("LISTEN_ADDR", ":8080")
+
+	s, err := store.New(dbURL)
+	if err != nil {
+		log.Fatalf("Failed to connect to database: %v", err)
+	}
+	defer s.Close()
+
+	e, err := embedding.NewEmbedder(modelPath, vocabPath, ortLibPath)
+	if err != nil {
+		log.Fatalf("Failed to initialize embedder: %v", err)
+	}
+	defer e.Close()
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		key := strings.TrimPrefix(r.URL.Path, "/")
+		if key == "" {
+			http.Error(w, "key required", http.StatusBadRequest)
+			return
+		}
+
+		switch r.Method {
+		case http.MethodGet:
+			handleGet(w, r, key, s, e)
+		case http.MethodPost:
+			handlePost(w, r, key, s, e)
+		case http.MethodDelete:
+			handleDelete(w, r, key, s)
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+
+	log.Printf("Listening on %s", addr)
+	log.Fatal(http.ListenAndServe(addr, mux))
+}
+
+func handleGet(w http.ResponseWriter, r *http.Request, key string, s *store.Store, e *embedding.Embedder) {
+	query := r.URL.Query().Get("q")
+	if query == "" {
+		http.Error(w, "q parameter required", http.StatusBadRequest)
+		return
+	}
+
+	k := 10
+	if kStr := r.URL.Query().Get("k"); kStr != "" {
+		if kVal, err := strconv.Atoi(kStr); err == nil && kVal > 0 {
+			k = kVal
+		}
+	}
+
+	vec, err := e.Embed(query)
+	if err != nil {
+		http.Error(w, "embedding failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	results, err := s.Query(r.Context(), key, vec, k)
+	if err != nil {
+		http.Error(w, "query failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(results)
+}
+
+func handlePost(w http.ResponseWriter, r *http.Request, key string, s *store.Store, e *embedding.Embedder) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "read body failed", http.StatusBadRequest)
+		return
+	}
+	content := string(body)
+
+	vec, err := e.Embed(content)
+	if err != nil {
+		http.Error(w, "embedding failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if err := s.Insert(r.Context(), key, content, vec); err != nil {
+		http.Error(w, "insert failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusCreated)
+}
+
+func handleDelete(w http.ResponseWriter, r *http.Request, key string, s *store.Store) {
+	if err := s.Delete(r.Context(), key); err != nil {
+		http.Error(w, "delete failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func getEnv(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
