@@ -1,12 +1,12 @@
-# vector-kv
+# 🔑 vector-kv
 
-A vector key-value store with semantic search. Stores text content with vector embeddings and retrieves entries by cosine similarity.
+A vector key-value store with semantic search. Stores text content with vector embeddings and retrieves entries by cosine similarity. 🧠
 
 Built with Go, ONNX Runtime (all-MiniLM-L6-v2), and PostgreSQL with pgvector.
 
-## API
+## 📡 API
 
-### Store content
+### 📝 Store content
 
 ```
 POST /:key
@@ -15,13 +15,13 @@ Body: plain text content
 
 Embeds the body text and stores it under the given key. Returns `201 Created`.
 
-### Query by similarity
+### 🔍 Query by similarity
 
 ```
-GET /:key?q=<query>
+GET /:key?q=<query>&k=<limit>
 ```
 
-Embeds the query and returns the top 10 most similar entries for that key, ordered by cosine distance:
+Embeds the query and returns the most similar entries for that key, ordered by cosine distance. `k` defaults to 10 if not provided.
 
 ```json
 [
@@ -30,7 +30,7 @@ Embeds the query and returns the top 10 most similar entries for that key, order
 ]
 ```
 
-### Delete entries
+### 🗑️ Delete entries
 
 ```
 DELETE /:key
@@ -38,7 +38,19 @@ DELETE /:key
 
 Deletes all entries for the given key. Returns `204 No Content`.
 
-## Build and Deploy
+### 🗂️ List keys
+
+```
+GET /keys
+```
+
+Returns a JSON array of all distinct keys that have stored entries.
+
+```json
+["my-docs", "notes", "recipes"]
+```
+
+## 🚀 Build and Deploy
 
 Requires Docker and a local Kubernetes cluster with Helm.
 
@@ -53,19 +65,27 @@ bin/deploy
 The service is exposed via NodePort on port **30080**.
 
 ```bash
+# Store content
 curl -X POST http://<node-ip>:30080/my-key -d "Some text to store"
-curl "http://<node-ip>:30080/my-key?q=search+terms"
+
+# Query (top 5 results)
+curl "http://<node-ip>:30080/my-key?q=search+terms&k=5"
+
+# List all keys
+curl http://<node-ip>:30080/keys
+
+# Delete a key
 curl -X DELETE http://<node-ip>:30080/my-key
 ```
 
-## Architecture
+## 🏗️ Architecture
 
-- **Go HTTP service** — handles API requests, runs embeddings in-process via ONNX Runtime, stores/queries vectors in PostgreSQL
-- **all-MiniLM-L6-v2** — sentence transformer model (384-dimensional embeddings), loaded as ONNX and executed with `yalue/onnxruntime_go`
-- **PostgreSQL + pgvector** — vector storage with HNSW index for fast approximate nearest neighbor search
-- **Pure Go tokenizer** — WordPiece tokenizer for BERT-style tokenization, no CGO dependency
+- 🖥️ **Go HTTP service** — handles API requests, runs embeddings in-process via ONNX Runtime, stores/queries vectors in PostgreSQL
+- 🤖 **all-MiniLM-L6-v2** — sentence transformer model (384-dimensional embeddings), loaded as ONNX and executed with `yalue/onnxruntime_go`
+- 🐘 **PostgreSQL + pgvector** — vector storage with HNSW index for fast approximate nearest neighbor search (50GB storage)
+- ✂️ **Pure Go tokenizer** — WordPiece tokenizer for BERT-style tokenization, no CGO dependency
 
-## Configuration
+## ⚙️ Configuration
 
 Environment variables (with defaults):
 

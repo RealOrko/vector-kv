@@ -15,5 +15,5 @@ postgresql:
   username: vectorkv
   password: vectorkv
   storage:
-    size: 8Gi
+    size: 50Gi
     storageClass: local-path
