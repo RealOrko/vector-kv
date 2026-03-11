@@ -21,14 +21,19 @@ metadata:
 data:
   init.sql: |
     CREATE EXTENSION IF NOT EXISTS vector;
+    CREATE EXTENSION IF NOT EXISTS pg_trgm;
     CREATE TABLE IF NOT EXISTS entries (
         id BIGSERIAL PRIMARY KEY,
         key TEXT NOT NULL,
         content TEXT NOT NULL,
-        embedding vector(384) NOT NULL
+        embedding vector(384) NOT NULL,
+        metadata TEXT,
+        chunk INTEGER NOT NULL DEFAULT 0
     );
     CREATE INDEX IF NOT EXISTS entries_key_idx ON entries (key);
     CREATE INDEX IF NOT EXISTS entries_embedding_idx ON entries USING hnsw (embedding vector_cosine_ops);
+    CREATE INDEX IF NOT EXISTS entries_metadata_idx ON entries USING gin (metadata gin_trgm_ops);
+    CREATE INDEX IF NOT EXISTS entries_chunk_idx ON entries (chunk);
 ---
 apiVersion: v1
 kind: Service

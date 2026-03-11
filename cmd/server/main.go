@@ -74,8 +74,10 @@ func main() {
 
 func handleGet(w http.ResponseWriter, r *http.Request, key string, s *store.Store, e *embedding.Embedder) {
 	query := r.URL.Query().Get("q")
-	if query == "" {
-		http.Error(w, "q parameter required", http.StatusBadRequest)
+	metadata := r.URL.Query().Get("m")
+
+	if query == "" && metadata == "" {
+		http.Error(w, "q and/or m parameter required", http.StatusBadRequest)
 		return
 	}
 
@@ -86,13 +88,20 @@ func handleGet(w http.ResponseWriter, r *http.Request, key string, s *store.Stor
 		}
 	}
 
-	vec, err := e.Embed(query)
-	if err != nil {
-		http.Error(w, "embedding failed: "+err.Error(), http.StatusInternalServerError)
-		return
+	var results []store.Result
+	var err error
+
+	if query == "" {
+		results, err = s.QueryByMetadata(r.Context(), key, metadata, k)
+	} else {
+		vec, embedErr := e.Embed(query)
+		if embedErr != nil {
+			http.Error(w, "embedding failed: "+embedErr.Error(), http.StatusInternalServerError)
+			return
+		}
+		results, err = s.Query(r.Context(), key, vec, metadata, k)
 	}
 
-	results, err := s.Query(r.Context(), key, vec, k)
 	if err != nil {
 		http.Error(w, "query failed: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -109,6 +118,13 @@ func handlePost(w http.ResponseWriter, r *http.Request, key string, s *store.Sto
 		return
 	}
 	content := string(body)
+	metadata := r.Header.Get("X-Metadata")
+	chunk := 0
+	if chunkStr := r.Header.Get("X-Chunk"); chunkStr != "" {
+		if v, parseErr := strconv.Atoi(chunkStr); parseErr == nil {
+			chunk = v
+		}
+	}
 
 	vec, err := e.Embed(content)
 	if err != nil {
@@ -116,7 +132,7 @@ func handlePost(w http.ResponseWriter, r *http.Request, key string, s *store.Sto
 		return
 	}
 
-	if err := s.Insert(r.Context(), key, content, vec); err != nil {
+	if err := s.Insert(r.Context(), key, content, metadata, chunk, vec); err != nil {
 		http.Error(w, "insert failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}

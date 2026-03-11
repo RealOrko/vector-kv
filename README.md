@@ -11,22 +11,24 @@ Built with Go, ONNX Runtime (all-MiniLM-L6-v2), and PostgreSQL with pgvector.
 ```
 POST /:key
 Body: plain text content
+Header: X-Metadata (optional) - searchable metadata string
+Header: X-Chunk (optional)    - chunk number (integer, default 0)
 ```
 
-Embeds the body text and stores it under the given key. Returns `201 Created`.
+Embeds the body text and stores it under the given key. Optionally attach metadata via `X-Metadata` for later filtering and a chunk number via `X-Chunk` for ordering. Returns `201 Created`.
 
 ### 🔍 Query by similarity
 
 ```
-GET /:key?q=<query>&k=<limit>
+GET /:key?q=<query>&m=<metadata>&k=<limit>
 ```
 
-Embeds the query and returns the most similar entries for that key, ordered by cosine distance. `k` defaults to 10 if not provided.
+Search entries by semantic query (`q`), metadata filter (`m`), or both. At least one of `q` or `m` is required. Metadata filtering uses case-insensitive substring matching. Results are ordered by chunk number, then by distance. `k` defaults to 10 if not provided.
 
 ```json
 [
-  {"content": "some stored text", "distance": 0.25},
-  {"content": "another entry", "distance": 0.61}
+  {"content": "some stored text", "distance": 0.25, "chunk": 1, "metadata": "source=docs"},
+  {"content": "another entry", "distance": 0.61, "chunk": 2, "metadata": "source=docs"}
 ]
 ```
 
@@ -68,8 +70,17 @@ The service is exposed via NodePort on port **30080**.
 # Store content
 curl -X POST http://<node-ip>:30080/my-key -d "Some text to store"
 
-# Query (top 5 results)
+# Store content with metadata
+curl -X POST http://<node-ip>:30080/my-key -H "X-Metadata: source=docs" -d "Some text to store"
+
+# Query by similarity (top 5 results)
 curl "http://<node-ip>:30080/my-key?q=search+terms&k=5"
+
+# Query by metadata only
+curl "http://<node-ip>:30080/my-key?m=source=docs&k=5"
+
+# Query by both similarity and metadata
+curl "http://<node-ip>:30080/my-key?q=search+terms&m=source=docs&k=5"
 
 # List all keys
 curl http://<node-ip>:30080/keys
@@ -106,15 +117,26 @@ vector-kv keys
 vector-kv set my-key "Some text to store"
 cat file.txt | vector-kv set my-key
 
+# Store with metadata
+vector-kv set my-key "Some text" --meta "source=docs"
+cat file.txt | vector-kv set my-key --meta "source=docs"
+
 # Semantic search (top 5 results)
 vector-kv get my-key -q "search terms" -k 5
+
+# Search by metadata only
+vector-kv get my-key -m "source=docs"
+
+# Search by both query and metadata
+vector-kv get my-key -q "search terms" -m "source=docs" -k 5
 
 # Delete a key
 vector-kv delete my-key
 
-# Index a folder (with optional glob filter and dry-run)
+# Index a folder (with optional glob filter, metadata, and dry-run)
 vector-kv index my-key ./docs --glob "*.md" --dry-run
 vector-kv index my-key ./docs --glob "*.md"
+vector-kv index my-key ./docs --glob "*.md" --meta "project=myapp"
 
 # Configure chunking (applies to set and index)
 vector-kv config set-chunk-size 800

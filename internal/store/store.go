@@ -16,6 +16,8 @@ type Store struct {
 type Result struct {
 	Content  string  `json:"content"`
 	Distance float64 `json:"distance"`
+	Chunk    int     `json:"chunk"`
+	Metadata *string `json:"metadata"`
 }
 
 func New(databaseURL string) (*Store, error) {
@@ -29,19 +31,36 @@ func New(databaseURL string) (*Store, error) {
 	return &Store{db: db}, nil
 }
 
-func (s *Store) Insert(ctx context.Context, key, content string, embedding []float32) error {
+func (s *Store) Insert(ctx context.Context, key, content, metadata string, chunk int, embedding []float32) error {
 	_, err := s.db.ExecContext(ctx,
-		"INSERT INTO entries (key, content, embedding) VALUES ($1, $2, $3)",
-		key, content, pgvector.NewVector(embedding))
+		"INSERT INTO entries (key, content, embedding, metadata, chunk) VALUES ($1, $2, $3, $4, $5)",
+		key, content, pgvector.NewVector(embedding), nilIfEmpty(metadata), chunk)
 	return err
 }
 
-func (s *Store) Query(ctx context.Context, key string, embedding []float32, limit int) ([]Result, error) {
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT content, embedding <=> $1 AS distance
-		 FROM entries WHERE key = $2
-		 ORDER BY embedding <=> $1 LIMIT $3`,
-		pgvector.NewVector(embedding), key, limit)
+func nilIfEmpty(s string) interface{} {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
+func (s *Store) Query(ctx context.Context, key string, embedding []float32, metadata string, limit int) ([]Result, error) {
+	var rows *sql.Rows
+	var err error
+	if metadata == "" {
+		rows, err = s.db.QueryContext(ctx,
+			`SELECT content, embedding <=> $1 AS distance, chunk, metadata
+			 FROM entries WHERE key = $2
+			 ORDER BY chunk, embedding <=> $1 LIMIT $3`,
+			pgvector.NewVector(embedding), key, limit)
+	} else {
+		rows, err = s.db.QueryContext(ctx,
+			`SELECT content, embedding <=> $1 AS distance, chunk, metadata
+			 FROM entries WHERE key = $2 AND metadata ILIKE '%' || $4 || '%'
+			 ORDER BY chunk, embedding <=> $1 LIMIT $3`,
+			pgvector.NewVector(embedding), key, limit, metadata)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -50,7 +69,29 @@ func (s *Store) Query(ctx context.Context, key string, embedding []float32, limi
 	var results []Result
 	for rows.Next() {
 		var r Result
-		if err := rows.Scan(&r.Content, &r.Distance); err != nil {
+		if err := rows.Scan(&r.Content, &r.Distance, &r.Chunk, &r.Metadata); err != nil {
+			return nil, err
+		}
+		results = append(results, r)
+	}
+	return results, rows.Err()
+}
+
+func (s *Store) QueryByMetadata(ctx context.Context, key, metadata string, limit int) ([]Result, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT content, 0 AS distance, chunk, metadata
+		 FROM entries WHERE key = $1 AND metadata ILIKE '%' || $2 || '%'
+		 ORDER BY chunk LIMIT $3`,
+		key, metadata, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []Result
+	for rows.Next() {
+		var r Result
+		if err := rows.Scan(&r.Content, &r.Distance, &r.Chunk, &r.Metadata); err != nil {
 			return nil, err
 		}
 		results = append(results, r)

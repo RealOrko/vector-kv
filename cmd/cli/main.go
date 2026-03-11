@@ -106,11 +106,12 @@ Commands:
   config set-chunk-overlap <N>      Set chunk overlap (default: 200)
   config show                       Show current configuration
   keys                              List all keys
-  get <key> -q <query> [-k N]       Semantic search within a key
-  set <key> [value]                 Store a value (reads stdin if no value given)
+  get <key> [-q <query>] [-m <meta>] [-k N]
+                                    Search by query and/or metadata
+  set <key> [value] [--meta <meta>] Store a value (reads stdin if no value given)
   delete <key>                      Delete a key
   index <key> <path> [--glob PAT]   Index a folder recursively
-                     [--dry-run]
+               [--meta M] [--dry-run]
 `)
 	os.Exit(1)
 }
@@ -237,11 +238,11 @@ func cmdKeys() {
 
 func cmdGet() {
 	if len(os.Args) < 3 {
-		fmt.Fprintln(os.Stderr, "Usage: vector-kv get <key> -q <query> [-k N]")
+		fmt.Fprintln(os.Stderr, "Usage: vector-kv get <key> [-q <query>] [-m <metadata>] [-k N]")
 		os.Exit(1)
 	}
 	key := os.Args[2]
-	var query string
+	var query, metadata string
 	k := 0
 	args := os.Args[3:]
 	for i := 0; i < len(args); i++ {
@@ -253,6 +254,13 @@ func cmdGet() {
 			}
 			i++
 			query = args[i]
+		case "-m":
+			if i+1 >= len(args) {
+				fmt.Fprintln(os.Stderr, "Missing value for -m")
+				os.Exit(1)
+			}
+			i++
+			metadata = args[i]
 		case "-k":
 			if i+1 >= len(args) {
 				fmt.Fprintln(os.Stderr, "Missing value for -k")
@@ -270,13 +278,19 @@ func cmdGet() {
 			os.Exit(1)
 		}
 	}
-	if query == "" {
-		fmt.Fprintln(os.Stderr, "Usage: vector-kv get <key> -q <query> [-k N]")
+	if query == "" && metadata == "" {
+		fmt.Fprintln(os.Stderr, "Usage: vector-kv get <key> [-q <query>] [-m <metadata>] [-k N]")
 		os.Exit(1)
 	}
 
 	base := requireURL()
-	params := url.Values{"q": {query}}
+	params := url.Values{}
+	if query != "" {
+		params.Set("q", query)
+	}
+	if metadata != "" {
+		params.Set("m", metadata)
+	}
 	if k > 0 {
 		params.Set("k", strconv.Itoa(k))
 	}
@@ -308,13 +322,30 @@ func cmdGet() {
 
 func cmdSet() {
 	if len(os.Args) < 3 {
-		fmt.Fprintln(os.Stderr, "Usage: vector-kv set <key> [value]  (reads from stdin if no value given)")
+		fmt.Fprintln(os.Stderr, "Usage: vector-kv set <key> [value] [--meta <metadata>]  (reads from stdin if no value given)")
 		os.Exit(1)
 	}
 	key := os.Args[2]
-	var value string
-	if len(os.Args) >= 4 {
-		value = os.Args[3]
+	var value, metadata string
+	var positionalArgs []string
+
+	args := os.Args[3:]
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--meta":
+			if i+1 >= len(args) {
+				fmt.Fprintln(os.Stderr, "Missing value for --meta")
+				os.Exit(1)
+			}
+			i++
+			metadata = args[i]
+		default:
+			positionalArgs = append(positionalArgs, args[i])
+		}
+	}
+
+	if len(positionalArgs) > 0 {
+		value = positionalArgs[0]
 	} else {
 		data, err := io.ReadAll(os.Stdin)
 		if err != nil {
@@ -337,7 +368,16 @@ func cmdSet() {
 	for i, chunk := range chunks {
 		body := fmt.Sprintf("[#%d] %s", i+1, chunk)
 		resp, err := doWithRetry(func() (*http.Response, error) {
-			return http.Post(reqURL, "text/plain", strings.NewReader(body))
+			req, reqErr := http.NewRequest(http.MethodPost, reqURL, strings.NewReader(body))
+			if reqErr != nil {
+				return nil, reqErr
+			}
+			req.Header.Set("Content-Type", "text/plain")
+			req.Header.Set("X-Chunk", strconv.Itoa(i+1))
+			if metadata != "" {
+				req.Header.Set("X-Metadata", metadata)
+			}
+			return http.DefaultClient.Do(req)
 		})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -422,12 +462,13 @@ func chunkText(text string, size, overlap int) []string {
 
 func cmdIndex() {
 	if len(os.Args) < 4 {
-		fmt.Fprintln(os.Stderr, "Usage: vector-kv index <key> <path> [--glob <pattern>] [--dry-run]")
+		fmt.Fprintln(os.Stderr, "Usage: vector-kv index <key> <path> [--glob <pattern>] [--meta <metadata>] [--dry-run]")
 		os.Exit(1)
 	}
 	key := os.Args[2]
 	root := os.Args[3]
 	globPattern := "*"
+	metadata := ""
 	dryRun := false
 
 	args := os.Args[4:]
@@ -440,6 +481,13 @@ func cmdIndex() {
 			}
 			i++
 			globPattern = args[i]
+		case "--meta":
+			if i+1 >= len(args) {
+				fmt.Fprintln(os.Stderr, "Missing value for --meta")
+				os.Exit(1)
+			}
+			i++
+			metadata = args[i]
 		case "--dry-run":
 			dryRun = true
 		default:
@@ -492,7 +540,18 @@ func cmdIndex() {
 			body := fmt.Sprintf("[%s] [#%d] %s", relPath, i+1, chunk)
 			reqURL := base + "/" + url.PathEscape(key)
 			resp, postErr := doWithRetry(func() (*http.Response, error) {
-				return http.Post(reqURL, "text/plain", strings.NewReader(body))
+				req, reqErr := http.NewRequest(http.MethodPost, reqURL, strings.NewReader(body))
+				if reqErr != nil {
+					return nil, reqErr
+				}
+				req.Header.Set("Content-Type", "text/plain")
+				req.Header.Set("X-Chunk", strconv.Itoa(i+1))
+				chunkMeta := metadata
+				if chunkMeta == "" {
+					chunkMeta = relPath
+				}
+				req.Header.Set("X-Metadata", chunkMeta)
+				return http.DefaultClient.Do(req)
 			})
 			if postErr != nil {
 				fmt.Fprintf(os.Stderr, "Warning: failed to index %s: %v\n", relPath, postErr)
