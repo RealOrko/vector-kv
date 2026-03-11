@@ -102,8 +102,9 @@ vector-kv config set-url http://<node-ip>:30080
 # List all keys
 vector-kv keys
 
-# Store a value
+# Store a value (inline or from stdin)
 vector-kv set my-key "Some text to store"
+cat file.txt | vector-kv set my-key
 
 # Semantic search (top 5 results)
 vector-kv get my-key -q "search terms" -k 5
@@ -115,7 +116,7 @@ vector-kv delete my-key
 vector-kv index my-key ./docs --glob "*.md" --dry-run
 vector-kv index my-key ./docs --glob "*.md"
 
-# Configure chunking for indexing
+# Configure chunking (applies to set and index)
 vector-kv config set-chunk-size 800
 vector-kv config set-chunk-overlap 200
 

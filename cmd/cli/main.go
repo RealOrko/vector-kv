@@ -107,7 +107,7 @@ Commands:
   config show                       Show current configuration
   keys                              List all keys
   get <key> -q <query> [-k N]       Semantic search within a key
-  set <key> <value>                 Store a value under a key
+  set <key> [value]                 Store a value (reads stdin if no value given)
   delete <key>                      Delete a key
   index <key> <path> [--glob PAT]   Index a folder recursively
                      [--dry-run]
@@ -307,31 +307,50 @@ func cmdGet() {
 }
 
 func cmdSet() {
-	if len(os.Args) < 4 {
-		fmt.Fprintln(os.Stderr, "Usage: vector-kv set <key> <value>")
+	if len(os.Args) < 3 {
+		fmt.Fprintln(os.Stderr, "Usage: vector-kv set <key> [value]  (reads from stdin if no value given)")
 		os.Exit(1)
 	}
 	key := os.Args[2]
-	value := os.Args[3]
+	var value string
+	if len(os.Args) >= 4 {
+		value = os.Args[3]
+	} else {
+		data, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error reading stdin: %v\n", err)
+			os.Exit(1)
+		}
+		value = string(data)
+	}
+	if value == "" {
+		fmt.Fprintln(os.Stderr, "Error: empty value")
+		os.Exit(1)
+	}
 
+	cfg, _ := loadConfig()
 	base := requireURL()
 	reqURL := base + "/" + url.PathEscape(key)
 
-	resp, err := doWithRetry(func() (*http.Response, error) {
-		return http.Post(reqURL, "text/plain", strings.NewReader(value))
-	})
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
-	defer resp.Body.Close()
+	chunks := chunkText(value, cfg.chunkSize(), cfg.chunkOverlap())
 
-	if resp.StatusCode != http.StatusCreated {
-		body, _ := io.ReadAll(resp.Body)
-		fmt.Fprintf(os.Stderr, "Error (%d): %s\n", resp.StatusCode, strings.TrimSpace(string(body)))
-		os.Exit(1)
+	for i, chunk := range chunks {
+		body := fmt.Sprintf("[#%d] %s", i+1, chunk)
+		resp, err := doWithRetry(func() (*http.Response, error) {
+			return http.Post(reqURL, "text/plain", strings.NewReader(body))
+		})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusCreated {
+			respBody, _ := io.ReadAll(resp.Body)
+			fmt.Fprintf(os.Stderr, "Error (%d): %s\n", resp.StatusCode, strings.TrimSpace(string(respBody)))
+			os.Exit(1)
+		}
 	}
-	fmt.Println("OK")
+	fmt.Printf("OK (%d chunks)\n", len(chunks))
 }
 
 func cmdDelete() {
@@ -469,8 +488,8 @@ func cmdIndex() {
 		content := string(data)
 		chunks := chunkText(content, chunkSize, chunkOverlap)
 
-		for _, chunk := range chunks {
-			body := fmt.Sprintf("[%s] %s", relPath, chunk)
+		for i, chunk := range chunks {
+			body := fmt.Sprintf("[%s] [#%d] %s", relPath, i+1, chunk)
 			reqURL := base + "/" + url.PathEscape(key)
 			resp, postErr := doWithRetry(func() (*http.Response, error) {
 				return http.Post(reqURL, "text/plain", strings.NewReader(body))
