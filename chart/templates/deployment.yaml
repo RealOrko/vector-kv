@@ -13,6 +13,8 @@ spec:
       {{- include "vector-kv.selectorLabels" . | nindent 6 }}
   template:
     metadata:
+      annotations:
+        rollme: {{ randAlphaNum 5 | quote }}
       labels:
         app.kubernetes.io/component: server
         {{- include "vector-kv.selectorLabels" . | nindent 8 }}
