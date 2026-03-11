@@ -81,7 +81,7 @@ func (s *Store) QueryByMetadata(ctx context.Context, key, metadata string, limit
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT content, 0 AS distance, chunk, metadata
 		 FROM entries WHERE key = $1 AND metadata ILIKE '%' || $2 || '%'
-		 ORDER BY chunk LIMIT $3`,
+		 ORDER BY metadata, chunk LIMIT $3`,
 		key, metadata, limit)
 	if err != nil {
 		return nil, err
