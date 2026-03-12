@@ -510,7 +510,20 @@ func cmdIndex() {
 		if info.IsDir() {
 			return nil
 		}
-		matched, matchErr := filepath.Match(globPattern, filepath.Base(path))
+		baseName := filepath.Base(path)
+		matched := false
+		var matchErr error
+		for _, pat := range strings.Split(globPattern, ",") {
+			m, err := filepath.Match(pat, baseName)
+			if err != nil {
+				matchErr = err
+				break
+			}
+			if m {
+				matched = true
+				break
+			}
+		}
 		if matchErr != nil || !matched {
 			return nil
 		}
