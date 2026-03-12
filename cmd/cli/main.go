@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	ignore "github.com/sabhiram/go-gitignore"
 )
 
 func configDir() string {
@@ -111,7 +113,7 @@ Commands:
   set <key> [value] [--meta <meta>] Store a value (reads stdin if no value given)
   delete <key>                      Delete a key
   index <key> <path> [--glob PAT]   Index a folder recursively
-               [--meta M] [--dry-run]
+               [--meta M] [--dry-run] [--no-ignore]
 `)
 	os.Exit(1)
 }
@@ -470,6 +472,7 @@ func cmdIndex() {
 	globPattern := "*"
 	metadata := ""
 	dryRun := false
+	noIgnore := false
 
 	args := os.Args[4:]
 	for i := 0; i < len(args); i++ {
@@ -490,9 +493,19 @@ func cmdIndex() {
 			metadata = args[i]
 		case "--dry-run":
 			dryRun = true
+		case "--no-ignore":
+			noIgnore = true
 		default:
 			fmt.Fprintf(os.Stderr, "Unknown flag: %s\n", args[i])
 			os.Exit(1)
+		}
+	}
+
+	var gi *ignore.GitIgnore
+	if !noIgnore {
+		gitignorePath := filepath.Join(root, ".gitignore")
+		if _, err := os.Stat(gitignorePath); err == nil {
+			gi, _ = ignore.CompileIgnoreFile(gitignorePath)
 		}
 	}
 
@@ -505,6 +518,13 @@ func cmdIndex() {
 
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
+			return nil
+		}
+		relPath, _ := filepath.Rel(root, path)
+		if gi != nil && relPath != "." && gi.MatchesPath(relPath) {
+			if info.IsDir() {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		if info.IsDir() {
@@ -527,8 +547,6 @@ func cmdIndex() {
 		if matchErr != nil || !matched {
 			return nil
 		}
-
-		relPath, _ := filepath.Rel(root, path)
 
 		if dryRun {
 			fmt.Println(relPath)
