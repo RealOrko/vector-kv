@@ -3,11 +3,18 @@ set -euo pipefail
 
 REGISTRY="registry:5000"
 IMAGE="${REGISTRY}/vector-kv:latest"
+PGVECTOR_IMAGE="pgvector/pgvector:pg16"
+PGVECTOR_REGISTRY_IMAGE="${REGISTRY}/pgvector:pg16"
 
 echo "Building ${IMAGE}..."
 docker build -t "${IMAGE}" .
 
 echo "Pushing ${IMAGE}..."
 docker push "${IMAGE}"
+
+echo "Ensuring ${PGVECTOR_REGISTRY_IMAGE} is in registry..."
+docker pull "${PGVECTOR_IMAGE}"
+docker tag "${PGVECTOR_IMAGE}" "${PGVECTOR_REGISTRY_IMAGE}"
+docker push "${PGVECTOR_REGISTRY_IMAGE}"
 
 echo "Done."
