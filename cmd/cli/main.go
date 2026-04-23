@@ -521,6 +521,14 @@ func cmdIndex() {
 			return nil
 		}
 		relPath, _ := filepath.Rel(root, path)
+		for _, part := range strings.Split(filepath.ToSlash(relPath), "/") {
+			if part == ".git" {
+				if info.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+		}
 		if gi != nil && relPath != "." && gi.MatchesPath(relPath) {
 			if info.IsDir() {
 				return filepath.SkipDir
