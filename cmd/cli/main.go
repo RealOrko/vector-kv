@@ -564,7 +564,8 @@ func cmdIndex() {
 			return nil
 		}
 
-		content := string(data)
+		content := strings.ToValidUTF8(string(data), "")
+		content = strings.ReplaceAll(content, "\x00", "")
 		chunks := chunkText(content, chunkSize, chunkOverlap)
 
 		for i, chunk := range chunks {
